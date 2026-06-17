@@ -166,8 +166,16 @@ export const AirtableService = {
         ? configRaw.join("\n")
         : configRaw || "";
 
+      const ghIdRaw =
+        record.fields.gh_id ||
+        record.fields["gh_id"] ||
+        record.fields["Gift Hamper"] ||
+        "";
+      const ghId = Array.isArray(ghIdRaw) ? ghIdRaw[0] : ghIdRaw;
+
       return {
         id: record.id,
+        gh_id: ghId || "",
         gift_hamper_name:
           record.fields.gift_hamper_name ||
           record.fields["Gift Hamper Name"] ||
@@ -181,34 +189,74 @@ export const AirtableService = {
       };
     });
 
-    // Handle missing configs from Gift Hamper base (This uses the MAIN base)
-    const itemsMissingConfig = lineItems.filter(
-      (item: any) => !item.gh_config && item.gift_hamper_name,
-    );
-    if (itemsMissingConfig.length > 0 && BASE_ID && API_KEY) {
-      const uniqueNames = [
-        ...new Set(
-          itemsMissingConfig.map((item: any) => item.gift_hamper_name),
-        ),
+    // Always pull the latest hamper config from the Gift Hamper master base.
+    // This runs for every line item that has a gh_id, not just ones missing
+    // a config, so the proforma invoice always reflects current hamper contents.
+    if (BASE_ID && API_KEY) {
+      const itemsWithGhId = lineItems.filter((item: any) => item.gh_id);
+      const uniqueGhIds = [
+        ...new Set(itemsWithGhId.map((item: any) => item.gh_id)),
       ];
-      for (const hamperName of uniqueNames) {
+
+      const ghConfigByGhId: Record<string, string> = {};
+
+      for (const ghId of uniqueGhIds) {
         try {
           const ghTableName = encodeURIComponent("Gift Hamper");
-          const ghFormula = encodeURIComponent(
-            `{Gift Hamper Name}="${hamperName}"`,
-          );
-          const ghPath = `${ghTableName}?filterByFormula=${ghFormula}&maxRecords=1&fields%5B%5D=fancy_config&fields%5B%5D=Gift%20Hamper%20Name`;
+          const ghFormula = encodeURIComponent(`{gh_id}="${ghId}"`);
+          const ghPath = `${ghTableName}?filterByFormula=${ghFormula}&maxRecords=1&fields%5B%5D=fancy_config&fields%5B%5D=gh_id&fields%5B%5D=Gift%20Hamper%20Name`;
           const ghData = await airtableFetch(BASE_ID, API_KEY, ghPath);
           if (ghData.records && ghData.records.length > 0) {
-            const fancyConfig = ghData.records[0].fields.fancy_config || "";
-            lineItems.forEach((item: any) => {
-              if (item.gift_hamper_name === hamperName && !item.gh_config) {
-                item.gh_config = fancyConfig;
-              }
-            });
+            const fancyConfigRaw = ghData.records[0].fields.fancy_config || "";
+            const fancyConfig = Array.isArray(fancyConfigRaw)
+              ? fancyConfigRaw.join("\n")
+              : fancyConfigRaw;
+            ghConfigByGhId[ghId as string] = fancyConfig;
           }
         } catch (e) {
-          console.warn("Failed to fetch fancy_config for:", hamperName, e);
+          console.warn("Failed to fetch fancy_config for gh_id:", ghId, e);
+        }
+      }
+
+      lineItems.forEach((item: any) => {
+        if (item.gh_id && ghConfigByGhId[item.gh_id]) {
+          item.gh_config = ghConfigByGhId[item.gh_id];
+        }
+      });
+
+      // Fallback: for any item still missing a config (no gh_id, or lookup
+      // failed), try matching by hamper name instead.
+      const itemsStillMissing = lineItems.filter(
+        (item: any) => !item.gh_config && item.gift_hamper_name,
+      );
+      if (itemsStillMissing.length > 0) {
+        const uniqueNames = [
+          ...new Set(
+            itemsStillMissing.map((item: any) => item.gift_hamper_name),
+          ),
+        ];
+        for (const hamperName of uniqueNames) {
+          try {
+            const ghTableName = encodeURIComponent("Gift Hamper");
+            const ghFormula = encodeURIComponent(
+              `{Gift Hamper Name}="${hamperName}"`,
+            );
+            const ghPath = `${ghTableName}?filterByFormula=${ghFormula}&maxRecords=1&fields%5B%5D=fancy_config&fields%5B%5D=Gift%20Hamper%20Name`;
+            const ghData = await airtableFetch(BASE_ID, API_KEY, ghPath);
+            if (ghData.records && ghData.records.length > 0) {
+              const fancyConfigRaw = ghData.records[0].fields.fancy_config || "";
+              const fancyConfig = Array.isArray(fancyConfigRaw)
+                ? fancyConfigRaw.join("\n")
+                : fancyConfigRaw;
+              lineItems.forEach((item: any) => {
+                if (item.gift_hamper_name === hamperName && !item.gh_config) {
+                  item.gh_config = fancyConfig;
+                }
+              });
+            }
+          } catch (e) {
+            console.warn("Failed to fetch fancy_config for:", hamperName, e);
+          }
         }
       }
     }

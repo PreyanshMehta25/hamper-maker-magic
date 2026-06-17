@@ -1,5 +1,6 @@
 export interface InvoiceLineItem {
   id: string;
+  gh_id?: string;
   gift_hamper_name: string;
   mrp: number;
   pre_tax_price: number;

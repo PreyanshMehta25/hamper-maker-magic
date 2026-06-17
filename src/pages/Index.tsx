@@ -21,6 +21,187 @@ const createEmptyPage = (): CatalogPageData => ({
   carbonPercent: "",
 });
 
+// ─── Slide dimensions (inches) ───────────────────────────────────────────────
+// Standard widescreen 10 × 5.625 — matches most "intro slide" decks
+const SLIDE_W = 10;
+const SLIDE_H = 5.625;
+
+// Layout constants (inches)
+const IMG_W = SLIDE_W * 0.62;       // 62% width for image
+const RIGHT_W = SLIDE_W - IMG_W;    // remaining right panel
+const CARD_LEFT = IMG_W - 0.3;      // white card overlaps image slightly
+const CARD_TOP = 0.35;
+const CARD_BOT = 0.35;
+const CARD_H = SLIDE_H - CARD_TOP - CARD_BOT;
+const CARD_W = SLIDE_W - CARD_LEFT - 0.2;
+const PAD_X = 0.28;                 // horizontal padding inside card
+const PAD_Y = 0.28;
+
+// Brand colours
+const BEIGE_BG  = "EDE2D6";
+const BROWN     = "7A6451";
+const WHITE     = "FFFFFF";
+const GREEN     = "2D6A4F";
+
+/**
+ * Converts a base-64 data-URL (or plain base-64 string) to the format
+ * PptxGenJS expects: { data: "base64,<data>" }
+ */
+function toB64(src: string): string {
+  // Already a data-URL like "data:image/png;base64,..."
+  if (src.startsWith("data:")) return src;
+  // Raw base-64 — wrap it
+  return `data:image/png;base64,${src}`;
+}
+
+/**
+ * Build one "template" slide (image left + white card right).
+ */
+function buildTemplateSlide(pptx: PptxGenJS, page: CatalogPageData) {
+  const slide = pptx.addSlide();
+
+  // ── Background (beige) ──────────────────────────────────────────────────
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 0, w: SLIDE_W, h: SLIDE_H,
+    fill: { color: BEIGE_BG },
+    line: { color: BEIGE_BG },
+  });
+
+  // ── Product image (left 62%) ────────────────────────────────────────────
+  if (page.image) {
+    slide.addImage({
+      data: toB64(page.image),
+      x: 0, y: 0, w: IMG_W, h: SLIDE_H,
+      sizing: { type: "cover", w: IMG_W, h: SLIDE_H },
+    });
+  }
+
+  // ── White card (overlapping) ────────────────────────────────────────────
+  slide.addShape(pptx.ShapeType.rect, {
+    x: CARD_LEFT, y: CARD_TOP, w: CARD_W, h: CARD_H,
+    fill: { color: WHITE },
+    line: { color: WHITE },
+    shadow: { type: "outer", blur: 8, offset: 4, angle: 45, color: "000000", opacity: 0.08 },
+  });
+
+  let cursorY = CARD_TOP + PAD_Y;
+  const textX = CARD_LEFT + PAD_X;
+  const textW = CARD_W - PAD_X * 2;
+
+  // ── Title ───────────────────────────────────────────────────────────────
+  const titleText = page.title || "Hamper Title";
+  slide.addText(titleText, {
+    x: textX, y: cursorY, w: textW, h: 0.55,
+    fontSize: 14,
+    bold: true,
+    color: BROWN,
+    fontFace: "Asap",
+    wrap: true,
+    autoFit: true,
+  });
+  cursorY += 0.62;
+
+  // ── Description bullet points ───────────────────────────────────────────
+  const descLines = page.description
+    ? page.description.split("\n").map((l) => l.trim()).filter(Boolean)
+    : [];
+
+  const bulletH = CARD_H - PAD_Y * 2 - 0.62 /* title */ - 1.1 /* footer */;
+
+  if (descLines.length > 0) {
+    const bulletRows = descLines.map((line) => ({
+      text: line,
+      options: {
+        bullet: { code: "2022" },   // • character
+        fontSize: 7.5,
+        color: BROWN,
+        fontFace: "Asap",
+        paraSpaceAfter: 3,
+      },
+    }));
+
+    slide.addText(bulletRows, {
+      x: textX, y: cursorY, w: textW, h: bulletH,
+      valign: "top",
+      wrap: true,
+    });
+  }
+
+  // ── Footer (eco stats + pricing) ────────────────────────────────────────
+  const footerY = CARD_TOP + CARD_H - PAD_Y - 0.75;
+
+  // Divider line
+  slide.addShape(pptx.ShapeType.line, {
+    x: textX, y: footerY - 0.08, w: textW, h: 0,
+    line: { color: "E5E7EB", width: 0.5 },
+  });
+
+  // Eco text
+  const plastic = page.plasticPercent || "80";
+  const carbon  = page.carbonPercent  || "71";
+  slide.addText(
+    `${plastic}% less plastic pollution  |  ${carbon}% less carbon emissions`,
+    {
+      x: textX, y: footerY, w: textW, h: 0.22,
+      fontSize: 6.5,
+      italic: true,
+      color: GREEN,
+      fontFace: "Asap",
+    }
+  );
+
+  // Pricing
+  if (page.preTaxPrice && page.preTaxPrice > 0) {
+    const salePrice     = page.preTaxPrice;
+    const originalPrice = Math.round(salePrice * 1.33);
+    const fmtIN = (n: number) =>
+      `\u20B9${n.toLocaleString("en-IN")}`; // ₹
+
+    const pricingY = footerY + 0.25;
+
+    // MRP (strikethrough)
+    slide.addText([
+      { text: "MRP ", options: { fontSize: 7, color: BROWN, fontFace: "Asap" } },
+      { text: fmtIN(originalPrice), options: { fontSize: 7, color: BROWN, fontFace: "Asap", strike: true } },
+      { text: `  ${fmtIN(salePrice)}`, options: { fontSize: 7, bold: true, color: BROWN, fontFace: "Asap" } },
+      { text: "  Bulk pricing | Tax & shipping extra", options: { fontSize: 6.5, color: BROWN, fontFace: "Asap" } },
+    ], {
+      x: textX, y: pricingY, w: textW, h: 0.28,
+      wrap: true,
+    });
+  } else {
+    slide.addText("₹— | Bulk pricing | Tax & shipping extra", {
+      x: textX, y: footerY + 0.25, w: textW, h: 0.25,
+      fontSize: 7,
+      color: BROWN,
+      fontFace: "Asap",
+    });
+  }
+}
+
+/**
+ * Build one "full-image" slide.
+ */
+function buildFullImageSlide(pptx: PptxGenJS, page: CatalogPageData) {
+  const slide = pptx.addSlide();
+
+  slide.addShape(pptx.ShapeType.rect, {
+    x: 0, y: 0, w: SLIDE_W, h: SLIDE_H,
+    fill: { color: BEIGE_BG },
+    line: { color: BEIGE_BG },
+  });
+
+  if (page.image) {
+    slide.addImage({
+      data: toB64(page.image),
+      x: 0, y: 0, w: SLIDE_W, h: SLIDE_H,
+      sizing: { type: "cover", w: SLIDE_W, h: SLIDE_H },
+    });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const Index = () => {
   const multiPageRef = useRef<HTMLDivElement>(null);
   const [isGenerating, setIsGenerating] = useState(false);
@@ -30,6 +211,7 @@ const Index = () => {
 
   const activePage = pages[activePageIndex];
 
+  // ── PDF (unchanged — still uses html2canvas) ──────────────────────────────
   const handleDownloadPDF = async () => {
     if (!multiPageRef.current) return;
 
@@ -77,9 +259,8 @@ const Index = () => {
     }
   };
 
+  // ── PPT (fully programmatic — editable text, native images) ──────────────
   const handleDownloadPPT = async () => {
-    if (!multiPageRef.current) return;
-
     const invalidPages = pages.filter((p) => !p.image);
     if (invalidPages.length > 0) {
       toast.error(`Please add an image to all ${pages.length} pages`);
@@ -90,35 +271,21 @@ const Index = () => {
 
     try {
       const pptx = new PptxGenJS();
-      pptx.defineLayout({ name: 'CATALOG', width: 10, height: 5.25 });
-      pptx.layout = 'CATALOG';
 
-      const nodes = Array.from(
-        multiPageRef.current.querySelectorAll<HTMLElement>(".pdf-page")
-      );
+      // Standard widescreen layout (same ratio as Google Slides default)
+      pptx.defineLayout({ name: "CATALOG", width: SLIDE_W, height: SLIDE_H });
+      pptx.layout = "CATALOG";
 
-      for (const node of nodes) {
-        const canvas = await html2canvas(node, {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          width: 1200,
-          height: 630,
-        });
-
-        const imgData = canvas.toDataURL("image/png");
-        const slide = pptx.addSlide();
-        slide.addImage({
-          data: imgData,
-          x: 0,
-          y: 0,
-          w: '100%',
-          h: '100%',
-        });
+      for (const page of pages) {
+        if (page.type === "full-image") {
+          buildFullImageSlide(pptx, page);
+        } else {
+          buildTemplateSlide(pptx, page);
+        }
       }
 
-      await pptx.writeFile({ fileName: `catalog_${pages.length}_pages.pptx` });
-      toast.success(`PowerPoint with ${pages.length} slide(s) downloaded!`);
+      await pptx.writeFile({ fileName: `catalog_${pages.length}_slides.pptx` });
+      toast.success(`PowerPoint with ${pages.length} editable slide(s) downloaded!`);
     } catch (error) {
       console.error("Error generating PPT:", error);
       toast.error("Failed to generate PowerPoint. Please try again.");
@@ -128,15 +295,11 @@ const Index = () => {
   };
 
   const goToPrevPage = () => {
-    if (activePageIndex > 0) {
-      setActivePageIndex(activePageIndex - 1);
-    }
+    if (activePageIndex > 0) setActivePageIndex(activePageIndex - 1);
   };
 
   const goToNextPage = () => {
-    if (activePageIndex < pages.length - 1) {
-      setActivePageIndex(activePageIndex + 1);
-    }
+    if (activePageIndex < pages.length - 1) setActivePageIndex(activePageIndex + 1);
   };
 
   return (
@@ -251,7 +414,7 @@ const Index = () => {
             </div>
             
             <p className="text-xs text-muted-foreground text-center">
-              Previewing page {activePageIndex + 1}. All {pages.length} pages will be included in PDF.
+              Previewing page {activePageIndex + 1}. All {pages.length} pages will be included in PDF/PPT.
             </p>
 
             {/* Page Thumbnails */}
@@ -297,6 +460,7 @@ const Index = () => {
       <div className="fixed left-0 top-0 opacity-0 pointer-events-none -z-10">
         <MultiPagePreview ref={multiPageRef} pages={pages} />
       </div>
+
       <footer className="border-t border-border/50 mt-12 py-6">
         <div className="max-w-[1800px] mx-auto px-6 text-center text-sm text-muted-foreground">
           <p>Corporate Gifting Catalog Generator • Made with care for your sales team</p>
