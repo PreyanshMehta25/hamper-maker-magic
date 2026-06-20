@@ -60,17 +60,20 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
       branch: bankDetails?.branch || "Powai, Mumbai"
     };
 
-    const defaultTerms = terms?.length ? terms : [
+    const defaultTerms = [
       "Prices are inclusive of all taxes, branding and shipping as mentioned above.",
       "Client to share the address, mobile numbers and email ids for dispatch.",
       "Loopify team will dispatch hampers within 10-11 days from receipt of advance for order confirmation and approval on mock-ups. While we take all efforts to neutralise it, Loopify won't be responsible in case of unforeseen delays in delivery because of on ground issues, if any.",
       "The total invoice value, inclusive of GST, must be paid as per the agreed terms. Withholding or delaying the GST component is not permitted. Loopify will hold dispatch until the full amount is received."
     ];
 
-    const paymentTerms = data.paymentTerms?.length ? data.paymentTerms : [
+    const defaultPaymentTerms = [
       "50% advance payment at the time of order confirmation.",
       "50% balance payment before dispatch"
     ];
+
+    const editableTerms = terms ?? defaultTerms;
+    const editablePaymentTerms = data.paymentTerms ?? defaultPaymentTerms;
 
     const updateInvoice = useCallback((field: string, value: string) => {
       onUpdate({ ...data, invoice: { ...data.invoice, [field]: value } });
@@ -102,16 +105,32 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
     }, [data, items, onUpdate]);
 
     const updateTerms = useCallback((index: number, value: string) => {
-      const newTerms = [...defaultTerms];
+      const newTerms = [...editableTerms];
       newTerms[index] = value;
       onUpdate({ ...data, terms: newTerms });
-    }, [data, defaultTerms, onUpdate]);
+    }, [data, editableTerms, onUpdate]);
+
+    const addTerm = useCallback(() => {
+      onUpdate({ ...data, terms: [...editableTerms, ''] });
+    }, [data, editableTerms, onUpdate]);
+
+    const removeTerm = useCallback((index: number) => {
+      onUpdate({ ...data, terms: editableTerms.filter((_, i) => i !== index) });
+    }, [data, editableTerms, onUpdate]);
 
     const updatePaymentTerms = useCallback((index: number, value: string) => {
-      const newPT = [...paymentTerms];
+      const newPT = [...editablePaymentTerms];
       newPT[index] = value;
       onUpdate({ ...data, paymentTerms: newPT });
-    }, [data, paymentTerms, onUpdate]);
+    }, [data, editablePaymentTerms, onUpdate]);
+
+    const addPaymentTerm = useCallback(() => {
+      onUpdate({ ...data, paymentTerms: [...editablePaymentTerms, ''] });
+    }, [data, editablePaymentTerms, onUpdate]);
+
+    const removePaymentTerm = useCallback((index: number) => {
+      onUpdate({ ...data, paymentTerms: editablePaymentTerms.filter((_, i) => i !== index) });
+    }, [data, editablePaymentTerms, onUpdate]);
 
     const updateBank = useCallback((field: string, value: string) => {
       onUpdate({ ...data, bankDetails: { ...defaultBankDetails, ...data.bankDetails, [field]: value } });
@@ -422,22 +441,40 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
 
         {/* Terms */}
         <div className="mb-6">
-          <h3 className="font-bold text-sm uppercase text-gray-800 mb-3">TERMS:</h3>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h3 className="font-bold text-sm uppercase text-gray-800">TERMS:</h3>
+            {!readOnly && (
+              <Button type="button" variant="outline" size="sm" onClick={addTerm} className="h-8 gap-1">
+                <Plus className="h-4 w-4" /> Add term
+              </Button>
+            )}
+          </div>
           {readOnly ? (
             <ol className="list-decimal list-inside space-y-2">
-              {defaultTerms.map((term, index) => (
+              {editableTerms.map((term, index) => (
                 <li key={index} className="text-sm text-gray-700 leading-relaxed">{term}</li>
               ))}
             </ol>
           ) : (
             <div className="space-y-2">
-              {defaultTerms.map((term, index) => (
-                <Textarea
-                  key={index}
-                  value={term}
-                  onChange={(e) => updateTerms(index, e.target.value)}
-                  className="text-sm text-gray-700 bg-transparent border-dashed min-h-[36px] resize-none leading-relaxed"
-                />
+              {editableTerms.map((term, index) => (
+                <div key={index} className="flex gap-2 items-start">
+                  <Textarea
+                    value={term}
+                    onChange={(e) => updateTerms(index, e.target.value)}
+                    className="text-sm text-gray-700 bg-transparent border-dashed min-h-[36px] resize-none leading-relaxed"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => removeTerm(index)}
+                    className="h-9 w-9 shrink-0"
+                    aria-label={`Remove term ${index + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               ))}
             </div>
           )}
@@ -445,22 +482,40 @@ export const InvoicePreview = forwardRef<HTMLDivElement, InvoicePreviewProps>(
 
         {/* Payment Terms */}
         <div className="mb-6">
-          <h3 className="font-bold text-sm uppercase text-gray-800 mb-3">PAYMENT TERMS:</h3>
+          <div className="flex items-center justify-between gap-3 mb-3">
+            <h3 className="font-bold text-sm uppercase text-gray-800">PAYMENT TERMS:</h3>
+            {!readOnly && (
+              <Button type="button" variant="outline" size="sm" onClick={addPaymentTerm} className="h-8 gap-1">
+                <Plus className="h-4 w-4" /> Add term
+              </Button>
+            )}
+          </div>
           {readOnly ? (
             <ol className="list-decimal list-inside space-y-1">
-              {paymentTerms.map((term, index) => (
+              {editablePaymentTerms.map((term, index) => (
                 <li key={index} className="text-sm text-gray-700 leading-relaxed">{term}</li>
               ))}
             </ol>
           ) : (
             <div className="space-y-2">
-              {paymentTerms.map((term, index) => (
-                <Textarea
-                  key={index}
-                  value={term}
-                  onChange={(e) => updatePaymentTerms(index, e.target.value)}
-                  className="text-sm text-gray-700 bg-transparent border-dashed min-h-[32px] resize-none"
-                />
+              {editablePaymentTerms.map((term, index) => (
+                <div key={index} className="flex gap-2 items-start">
+                  <Textarea
+                    value={term}
+                    onChange={(e) => updatePaymentTerms(index, e.target.value)}
+                    className="text-sm text-gray-700 bg-transparent border-dashed min-h-[32px] resize-none"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => removePaymentTerm(index)}
+                    className="h-9 w-9 shrink-0"
+                    aria-label={`Remove payment term ${index + 1}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
               ))}
             </div>
           )}
