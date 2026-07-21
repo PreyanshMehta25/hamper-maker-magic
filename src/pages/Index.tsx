@@ -54,6 +54,32 @@ function toB64(src: string): string {
   return `data:image/png;base64,${src}`;
 }
 
+async function imageToDataUrl(src: string): Promise<string> {
+  if (src.startsWith("data:")) return src;
+
+  const response = await fetch(src);
+  if (!response.ok) {
+    throw new Error(
+      `Failed to load image: ${response.status} ${response.statusText}`,
+    );
+  }
+
+  const blob = await response.blob();
+  return await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result === "string") {
+        resolve(result);
+      } else {
+        reject(new Error("Failed to convert image to data URL"));
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read image data"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 /**
  * Build one "template" slide (image left + white card right).
  */
@@ -271,12 +297,26 @@ const Index = () => {
 
     try {
       const pptx = new PptxGenJS();
+      const pagesWithEmbeddedImages = await Promise.all(
+        pages.map(async (page) => {
+          if (!page.image) return page;
+
+          try {
+            return { ...page, image: await imageToDataUrl(page.image) };
+          } catch (error) {
+            console.error("Failed to embed image for PPT:", page.id, error);
+            throw new Error(
+              "Failed to load an image for PowerPoint export. Please re-upload the hamper image and try again.",
+            );
+          }
+        }),
+      );
 
       // Standard widescreen layout (same ratio as Google Slides default)
       pptx.defineLayout({ name: "CATALOG", width: SLIDE_W, height: SLIDE_H });
       pptx.layout = "CATALOG";
 
-      for (const page of pages) {
+      for (const page of pagesWithEmbeddedImages) {
         if (page.type === "full-image") {
           buildFullImageSlide(pptx, page);
         } else {
@@ -288,7 +328,11 @@ const Index = () => {
       toast.success(`PowerPoint with ${pages.length} editable slide(s) downloaded!`);
     } catch (error) {
       console.error("Error generating PPT:", error);
-      toast.error("Failed to generate PowerPoint. Please try again.");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to generate PowerPoint. Please try again.",
+      );
     } finally {
       setIsGenerating(false);
     }
